@@ -16,6 +16,7 @@ Target: Raspberry Pi 3 (board revision 1.2), Raspberry Pi OS Lite.
 - Raspberry Pi 3 and microSD card
 - Correct Raspberry Pi power supply
 - Normally-open momentary push button
+- [KY-040 rotary encoder module](https://www.amazon.com/dp/B0GX88M8ML)
 - Two female jumper wires (or soldered wires)
 - Powered speakers, amplified speaker, or headphones with suitable volume
 
@@ -38,6 +39,13 @@ physical pin 11 / BCM GPIO17  -----[             ]-----  physical pin 9 / GND
 ```
 
 Never connect this button circuit to 5 V.
+
+### Raspberry Pi 3 pinout
+
+Use the **physical pin numbers** shown on the header below. The GPIO/BCM names are
+also included for comparison.
+
+![Raspberry Pi 3 40-pin GPIO pinout](docs/raspberry-pi-3-gpio-pinout.png)
 
 ### KY-040 volume knob
 
