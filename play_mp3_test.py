@@ -8,9 +8,14 @@ import logging
 import os
 from pathlib import Path
 import shlex
-import shutil
 
-from button_player import Mpg123Player, TrackLibrary
+from button_player import (
+    env_int,
+    find_mpg123,
+    Mpg123Player,
+    set_default_volume,
+    TrackLibrary,
+)
 
 LOG = logging.getLogger("button-player-test")
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -32,6 +37,10 @@ def load_environment_file(path: Path) -> None:
             values = shlex.split(raw_value, comments=True)
         except ValueError as exc:
             raise ValueError(f"Invalid setting in {path}: {raw_line}") from exc
+        if len(values) > 1:
+            raise ValueError(
+                f"Unsupported unquoted whitespace in setting: {raw_line}"
+            )
         value = values[0] if values else ""
         os.environ.setdefault(key, value)
 
@@ -44,8 +53,11 @@ class SingleTrackLibrary:
         self.music_dir = track.parent
         self.playlist_path = track
 
-    def next_track(self) -> Path:
+    def current_track(self) -> Path:
         return self.track
+
+    def advance(self) -> None:
+        pass
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,12 +98,13 @@ def main() -> int:
         os.environ.get("PLAYLIST_FILE", str(PROJECT_DIR / "playlist.txt"))
     ).expanduser()
     alsa_device = os.environ.get("ALSA_DEVICE", "").strip()
-    playback_scale = int(os.environ.get("PLAYBACK_SCALE", "32768"))
-    mpg123 = (
-        shutil.which("mpg123")
-        or shutil.which("mpg123-alsa")
-        or shutil.which("mpg123.bin")
-    )
+    try:
+        playback_scale = env_int("PLAYBACK_SCALE", 32768, minimum=1)
+        default_volume = env_int("DEFAULT_VOLUME", 80, minimum=0, maximum=100)
+    except ValueError as exc:
+        LOG.error("Configuration error: %s", exc)
+        return 1
+    mpg123 = find_mpg123()
     if not mpg123:
         LOG.error("mpg123 is not installed")
         return 1
@@ -105,6 +118,11 @@ def main() -> int:
     else:
         library = TrackLibrary(music_dir, playlist_path)
 
+    set_default_volume(
+        default_volume,
+        os.environ.get("ALSA_CARD", "Headphones"),
+        os.environ.get("ALSA_MIXER_CONTROL", "PCM"),
+    )
     player = Mpg123Player(library, mpg123, alsa_device, playback_scale)
     player.play_next()
     if player.process is None:

@@ -14,7 +14,7 @@ import shutil
 import signal
 import subprocess
 import threading
-from typing import Callable, Sequence
+from typing import Callable
 
 LOG = logging.getLogger("button-player")
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -62,7 +62,7 @@ class TrackLibrary:
         self.tracks: list[Path] = []
         self.index = 0
 
-    def next_track(self) -> Path | None:
+    def current_track(self) -> Path | None:
         updated = load_tracks(self.music_dir, self.playlist_path)
         if updated != self.tracks:
             self.tracks = updated
@@ -73,9 +73,12 @@ class TrackLibrary:
         if not self.tracks:
             return None
 
-        track = self.tracks[self.index]
+        return self.tracks[self.index]
+
+    def advance(self) -> None:
+        if not self.tracks:
+            return
         self.index = (self.index + 1) % len(self.tracks)
-        return track
 
 
 class Mpg123Player:
@@ -118,7 +121,7 @@ class Mpg123Player:
                 return
             self.process = None
 
-            track = self.library.next_track()
+            track = self.library.current_track()
             if track is None:
                 LOG.error(
                     "No MP3 files found. Add files to %s or edit %s",
@@ -139,27 +142,62 @@ class Mpg123Player:
                     command,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
                 )
             except OSError:
                 LOG.exception("Could not start mpg123")
                 self.process = None
+                return
+            self.library.advance()
 
 
 def env_path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser()
 
 
-def set_default_volume(
+def env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, not {raw!r}") from exc
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}, not {value}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must be at most {maximum}, not {value}")
+    return value
+
+
+def env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number, not {raw!r}") from exc
+    if value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}, not {value}")
+    return value
+
+
+def find_mpg123() -> str | None:
+    return (
+        shutil.which("mpg123")
+        or shutil.which("mpg123-alsa")
+        or shutil.which("mpg123.bin")
+    )
+
+
+def apply_alsa_volume(
     percent: int,
-    card: str = "0",
-    control: str = "PCM",
+    card: str,
+    control: str,
     run_factory: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> bool:
-    """Set and unmute the ALSA mixer used by the analog headphone jack."""
-    if not 0 <= percent <= 100:
-        LOG.error("DEFAULT_VOLUME must be between 0 and 100")
-        return False
     command = [
         "amixer", "-c", card, "sset", control, f"{percent}%", "unmute"
     ]
@@ -176,6 +214,21 @@ def set_default_volume(
         return False
     if result.returncode != 0:
         LOG.error("Could not set volume: %s", (result.stderr or "").strip())
+        return False
+    return True
+
+
+def set_default_volume(
+    percent: int,
+    card: str = "0",
+    control: str = "PCM",
+    run_factory: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> bool:
+    """Set and unmute the ALSA mixer used by the analog headphone jack."""
+    if not 0 <= percent <= 100:
+        LOG.error("DEFAULT_VOLUME must be between 0 and 100")
+        return False
+    if not apply_alsa_volume(percent, card, control, run_factory):
         return False
     LOG.info("Set startup volume to %d%%", percent)
     return True
@@ -208,33 +261,22 @@ class AlsaVolumeController:
         self.lock = threading.Lock()
 
     def _apply_unlocked(self) -> bool:
-        command = [
-            "amixer", "-c", self.card, "sset", self.control,
-            f"{self.percent}%", "unmute",
-        ]
-        try:
-            result = self.run_factory(
-                command,
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        except OSError:
-            LOG.exception("Could not run amixer")
-            return False
-        if result.returncode != 0:
-            LOG.error("Could not set volume: %s", (result.stderr or "").strip())
+        if not apply_alsa_volume(
+            self.percent, self.card, self.control, self.run_factory
+        ):
             return False
         LOG.info("Volume: %d%%", self.percent)
         return True
 
     def change(self, delta_percent: int) -> bool:
         with self.lock:
-            self.percent = max(
+            new_percent = max(
                 self.minimum_percent,
                 min(self.maximum_percent, self.percent + delta_percent),
             )
+            if new_percent == self.percent:
+                return True
+            self.percent = new_percent
             return self._apply_unlocked()
 
     def increase(self) -> bool:
@@ -250,39 +292,30 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    gpio_pin = int(os.environ.get("BUTTON_GPIO", "17"))
-    bounce_seconds = float(os.environ.get("BOUNCE_SECONDS", "0.08"))
+    try:
+        gpio_pin = env_int("BUTTON_GPIO", 17, minimum=0)
+        bounce_seconds = env_float("BOUNCE_SECONDS", 0.08)
+        playback_scale = env_int("PLAYBACK_SCALE", 32768, minimum=1)
+        volume_percent = env_int("DEFAULT_VOLUME", 80, minimum=0, maximum=100)
+        volume_step = env_int("VOLUME_STEP", 5, minimum=1, maximum=100)
+        volume_min = env_int("VOLUME_MIN", 0, minimum=0, maximum=100)
+        volume_max = env_int("VOLUME_MAX", 100, minimum=0, maximum=100)
+        encoder_bounce = env_float("ENCODER_BOUNCE_SECONDS", 0.005)
+    except ValueError as exc:
+        LOG.error("Configuration error: %s", exc)
+        return 1
+
     music_dir = env_path("MUSIC_DIR", str(PROJECT_DIR / "music"))
     playlist_path = env_path("PLAYLIST_FILE", str(PROJECT_DIR / "playlist.txt"))
     alsa_device = os.environ.get("ALSA_DEVICE", "").strip()
-    playback_scale = int(os.environ.get("PLAYBACK_SCALE", "32768"))
-    if playback_scale <= 0:
-        LOG.error("PLAYBACK_SCALE must be a positive integer")
-        return 1
-    default_volume = os.environ.get("DEFAULT_VOLUME", "").strip()
-    alsa_card = os.environ.get("ALSA_CARD", "0")
+    alsa_card = os.environ.get("ALSA_CARD", "Headphones")
     alsa_control = os.environ.get("ALSA_MIXER_CONTROL", "PCM")
-    volume_percent = 80
-    mpg123 = (
-        shutil.which("mpg123")
-        or shutil.which("mpg123-alsa")
-        or shutil.which("mpg123.bin")
-    )
+    mpg123 = find_mpg123()
     if not mpg123:
         LOG.error("mpg123 is not installed")
         return 1
 
-    if default_volume:
-        try:
-            volume_percent = int(default_volume)
-        except ValueError:
-            LOG.error("DEFAULT_VOLUME is not an integer: %s", default_volume)
-        else:
-            set_default_volume(
-                volume_percent,
-                alsa_card,
-                alsa_control,
-            )
+    set_default_volume(volume_percent, alsa_card, alsa_control)
 
     # Import only on the Pi so playlist logic can be tested elsewhere.
     from gpiozero import Button, RotaryEncoder
@@ -295,22 +328,32 @@ def main() -> int:
     encoder = None
     encoder_clk = os.environ.get("ENCODER_CLK_GPIO", "").strip()
     encoder_dt = os.environ.get("ENCODER_DT_GPIO", "").strip()
+    if bool(encoder_clk) != bool(encoder_dt):
+        LOG.error("Configuration error: set both ENCODER_CLK_GPIO and ENCODER_DT_GPIO")
+        return 1
     if encoder_clk and encoder_dt:
-        volume = AlsaVolumeController(
-            initial_percent=volume_percent,
-            step_percent=int(os.environ.get("VOLUME_STEP", "5")),
-            minimum_percent=int(os.environ.get("VOLUME_MIN", "0")),
-            maximum_percent=int(os.environ.get("VOLUME_MAX", "100")),
-            card=alsa_card,
-            control=alsa_control,
-        )
-        encoder = RotaryEncoder(
-            int(encoder_clk),
-            int(encoder_dt),
-            bounce_time=float(os.environ.get("ENCODER_BOUNCE_SECONDS", "0.005")),
-            max_steps=100,
-            wrap=True,
-        )
+        try:
+            clk_pin = int(encoder_clk)
+            dt_pin = int(encoder_dt)
+            volume = AlsaVolumeController(
+                initial_percent=volume_percent,
+                step_percent=volume_step,
+                minimum_percent=volume_min,
+                maximum_percent=volume_max,
+                card=alsa_card,
+                control=alsa_control,
+            )
+            encoder = RotaryEncoder(
+                clk_pin,
+                dt_pin,
+                bounce_time=encoder_bounce,
+                max_steps=100,
+                wrap=True,
+            )
+        except ValueError as exc:
+            LOG.error("Configuration error: %s", exc)
+            button.close()
+            return 1
         reverse = os.environ.get("ENCODER_REVERSE", "false").lower() in {
             "1", "true", "yes", "on",
         }

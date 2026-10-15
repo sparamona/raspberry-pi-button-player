@@ -1,7 +1,6 @@
 [Unit]
 Description=GPIO button MP3 player
-After=local-fs.target sound.target
-Wants=sound.target
+After=local-fs.target
 
 [Service]
 Type=simple

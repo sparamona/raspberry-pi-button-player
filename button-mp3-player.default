@@ -4,16 +4,13 @@ BUTTON_GPIO=17
 # Ignore contact bounce for 80 milliseconds.
 BOUNCE_SECONDS=0.08
 
-MUSIC_DIR=/home/jsheena/raspberry-pi-button-player/music
-PLAYLIST_FILE=/home/jsheena/raspberry-pi-button-player/playlist.txt
-
 # Raspberry Pi's documented ALSA name for the analog jack on Pi 4 and earlier.
 # If your image uses another name, choose one reported by: aplay -L
 ALSA_DEVICE=sysdefault:CARD=Headphones
 
 # Set the analog output to this level whenever the player starts.
 DEFAULT_VOLUME=80
-ALSA_CARD=0
+ALSA_CARD=Headphones
 ALSA_MIXER_CONTROL=PCM
 
 # mpg123 software sample scaling: 32768=100%, 49152=150%.

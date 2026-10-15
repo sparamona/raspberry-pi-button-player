@@ -143,8 +143,13 @@ Changes are detected on the next button press. A changed list starts again at tr
 ## Test one MP3 without pressing the button
 
 The test program imports the same `Mpg123Player` class, reads the same
-`~/raspberry-pi-button-player/button-mp3-player.default` settings, invokes `mpg123` with the same arguments, and
-uses the same ALSA device as the service.
+`~/raspberry-pi-button-player/button-mp3-player.default` settings, applies the
+same startup volume, invokes `mpg123` with the same arguments, and uses the same
+ALSA device as the service. Stop the service first so it cannot compete for audio:
+
+```bash
+systemctl --user stop button-mp3-player
+```
 
 Play the first track selected by the normal playlist configuration:
 
@@ -159,8 +164,11 @@ Or play a specific MP3:
   ~/raspberry-pi-button-player/music/example.mp3
 ```
 
-Press `Ctrl+C` to stop early. Avoid pressing the GPIO button during the test, since the
-background service would start its own player process.
+Press `Ctrl+C` to stop early. Restart normal operation afterward:
+
+```bash
+systemctl --user start button-mp3-player
+```
 
 ## Verify
 
@@ -180,17 +188,11 @@ sudo reboot
 
 After the Pi boots, wait about 30 seconds and press the button.
 
-## Adjust volume
+## Adjust persistent volume settings
 
-```bash
-alsamixer
-```
-
-Select the analog/headphone output if prompted, adjust with arrow keys, then save:
-
-```bash
-sudo alsactl store
-```
+Edit `button-mp3-player.default` to change `DEFAULT_VOLUME`, `VOLUME_MIN`,
+`VOLUME_MAX`, or `VOLUME_STEP`, then restart the user service. The service applies
+`DEFAULT_VOLUME` at every start, so saved mixer state does not override this setting.
 
 ## Change the GPIO pin or ALSA device
 
@@ -210,7 +212,7 @@ ALSA device, run `aplay -L` and set `ALSA_DEVICE` to the appropriate device name
 - **Multiple skips per press:** increase `BOUNCE_SECONDS` from `0.08` to `0.15`.
 - **No audio:** force Headphones in `raspi-config`, verify powered speakers, run the speaker test,
   and inspect `aplay -L`.
-- **Permission error for GPIO/audio:** verify `jsheena` is in `gpio` and `audio`, then log out and
-  back in: `id jsheena`.
+- **Permission error for GPIO/audio:** verify your user is in `gpio` and `audio`, then log out and
+  back in: `id "$(id -un)"`.
 - **Track not found:** filenames in `playlist.txt` are case-sensitive.
 - **Service restart:** `systemctl --user restart button-mp3-player`.
