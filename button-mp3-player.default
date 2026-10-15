@@ -1,0 +1,33 @@
+# BCM GPIO number. GPIO17 is physical header pin 11.
+BUTTON_GPIO=17
+
+# Ignore contact bounce for 80 milliseconds.
+BOUNCE_SECONDS=0.08
+
+MUSIC_DIR=/home/jsheena/raspberry-pi-button-player/music
+PLAYLIST_FILE=/home/jsheena/raspberry-pi-button-player/playlist.txt
+
+# Raspberry Pi's documented ALSA name for the analog jack on Pi 4 and earlier.
+# If your image uses another name, choose one reported by: aplay -L
+ALSA_DEVICE=sysdefault:CARD=Headphones
+
+# Set the analog output to this level whenever the player starts.
+DEFAULT_VOLUME=80
+ALSA_CARD=0
+ALSA_MIXER_CONTROL=PCM
+
+# mpg123 software sample scaling: 32768=100%, 49152=150%.
+# Values above 32768 can make quiet tracks louder but may clip loud recordings.
+PLAYBACK_SCALE=49152
+
+# KY-040 rotary encoder: CLK on GPIO22/pin 15 and DT on GPIO27/pin 13.
+# Turning changes volume; its SW pin on GPIO23/pin 16 is intentionally unused.
+ENCODER_CLK_GPIO=22
+ENCODER_DT_GPIO=27
+ENCODER_BOUNCE_SECONDS=0.005
+ENCODER_REVERSE=false
+VOLUME_STEP=5
+VOLUME_MIN=55
+VOLUME_MAX=100
+
+LOG_LEVEL=INFO

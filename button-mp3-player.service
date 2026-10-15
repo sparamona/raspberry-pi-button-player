@@ -1,0 +1,17 @@
+[Unit]
+Description=GPIO button MP3 player
+After=local-fs.target sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+RuntimeDirectory=button-mp3-player
+RuntimeDirectoryMode=0750
+WorkingDirectory=%t/button-mp3-player
+EnvironmentFile=-%h/raspberry-pi-button-player/button-mp3-player.default
+ExecStart=/usr/bin/python3 %h/raspberry-pi-button-player/button_player.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

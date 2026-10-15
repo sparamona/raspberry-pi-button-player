@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# All audio files stay local and are never committed.
+music/**/*.mp3
+music/*.mp3

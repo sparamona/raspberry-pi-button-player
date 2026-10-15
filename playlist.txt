@@ -1,0 +1,9 @@
+# Optional explicit playback order, one filename per line.
+# Names are relative to the music directory. Blank lines and # comments are ignored.
+# Uncomment and change these examples after copying in your MP3 files:
+# 01-introduction.mp3
+# 02-second-track.mp3
+# 03-final-track.mp3
+#
+# If this file contains no active entries, every MP3 in music/ is played
+# alphabetically by filename.
